@@ -1,2 +1,2 @@
 patient,polyp,histopathology,class_label,position,ct,segmentation
-001,001,regular,benign,prone,demo-cts/demo_ct_01.npy,demo-segs/demo_seg_01.npy
+001,001,regular,benign,prone,demo-cts/demo_ct_001.npy,demo-segs/demo_seg_001.npy

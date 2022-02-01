@@ -128,5 +128,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Weights
+weights/
+
 # Temporary files
 to-be-deleted/

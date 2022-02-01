@@ -2,6 +2,22 @@ from   source.boxed_ct_scan import Boxed_CT_Scan
 import numpy as np
 import os
 import pandas as pd
+from   pathlib import Path
+
+
+
+def get_list_of_patients(data_dir):
+    """
+    Returns list of patient directories.
+    """
+    # Find patient directories
+    patients = []
+    for pat_id_dir in Path(data_dir).iterdir():
+        if pat_id_dir.is_dir() and pat_id_dir.name[0]!='.':
+            patients.append(str(pat_id_dir.absolute()))
+
+    patients.sort()
+    return patients
 
 
 
