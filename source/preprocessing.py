@@ -6,18 +6,29 @@ from   pathlib import Path
 
 
 
-def get_list_of_patients(data_dir):
+def get_preprocessed_polyp_segmentation_mask_info(data_dir):
     """
-    Returns list of patient directories.
+    Returns list of boxed ct volumes around a polyp and corresponding segmentations.
     """
     # Find patient directories
-    patients = []
-    for pat_id_dir in Path(data_dir).iterdir():
-        if pat_id_dir.is_dir() and pat_id_dir.name[0]!='.':
-            patients.append(str(pat_id_dir.absolute()))
+    files = []
+    for file in Path(data_dir).iterdir():
+        if file.is_file() and file.name[0]!='.':
+            files.append(str(file.absolute()))
 
-    patients.sort()
-    return patients
+    files.sort()
+    
+    patients      = [x.split('pat')[1].split('_')[0] for x in files]
+    polyps        = [x.split('pol')[1].split('_')[0] for x in files]
+    segmentations = [x.split('seg')[1].split('_')[0] for x in files]
+    image_type    = [x.split('_')[-1].split('.npy')[0] for x in files]
+    
+    columns = ['patient', 'polyp', 'segmentation', 'type', 'file']
+    data    = np.array([patients, polyps, segmentations, image_type, files]).swapaxes(0,1)
+    
+    df_polyp_seg_masks = pd.DataFrame(data=data, columns=columns)
+    
+    return df_polyp_seg_masks
 
 
 
@@ -27,16 +38,6 @@ def preprocess_data(ct_info_file, output_dir, box_size=100, resample=False):
     cached boxes have a size of 100x100x100 pixels and are larger than the 50x50x50 
     boxes expected by the network. This allows for proper online data augmentation of 
     the cached boxes prior to training.
-    
-    The directory with the cached boxes will be structured as follows:
-    output_dir/
-        |- polyp 001/
-            |- boxed_polyp_volume.npy
-            |- segmentation.npy
-        |- polyp 002/
-            |- boxed_polyp_volume.npy
-            |- segmentation.npy
-        ...
     """
     # Create top data directory
     if not os.path.exists(output_dir):
@@ -55,28 +56,23 @@ def preprocess_data(ct_info_file, output_dir, box_size=100, resample=False):
         # Get path, label and patient information for the sample
         patient           = row["patient"]
         polyp             = row["polyp"]
-        ct_path           = row["ct"]
-        segmentation_path = row["segmentation"]
+        segmentation      = row["segmentation"]
+        ct_file           = row["ct_file"]
+        segmentation_file = row["segmentation_file"]
               
         # Load and preprocess a CT colonography scan together with a polyp segmentation
-        print("\tLoad CT colonography scan: '%s'" % ct_path)
-        print("\tLoad polyp segmentation:   '%s'" % segmentation_path)
-        box = Boxed_CT_Scan(ct_path, segmentation_path, box_size=box_size, resample=resample)
-            
-        # Create subfolder for boxed polyp volumes and segmentations
-        subfolder_name = str(patient).zfill(3)
-        subfolder_path = os.path.join(output_dir, subfolder_name)
-        if not os.path.exists(subfolder_path):
-            os.makedirs(subfolder_path)
+        print("\tLoad CT colonography scan: '%s'" % ct_file)
+        print("\tLoad polyp segmentation:   '%s'" % segmentation_file)
+        box = Boxed_CT_Scan(ct_file, segmentation_file, box_size=box_size, resample=resample)
         
         # Save boxed ct volume
-        box_filename  = "boxedct_pat_" + str(patient) + "_segid_" + str(index+1) + ".npy"
-        box_file_path = os.path.join(subfolder_path, box_filename)
-        print("\tSave boxed polyp volume:   '%s'..." % box_file_path)
-        np.save(box_file_path, box.boxed_ct)
+        ct_path  = "pat" + str(patient) + "_pol" + str(polyp) + "_seg" + str(segmentation) + "_ct.npy"
+        ct_path = os.path.join(output_dir, ct_path)
+        print("\tSave boxed polyp volume:   '%s'..." % ct_path)
+        np.save(ct_path, box.boxed_ct)
         
         # Save polyp segmentation mask
-        seg_filename  = "polypseg_pat_" + str(patient) + "_segid_" + str(index+1) + ".npy"
-        seg_file_path = os.path.join(subfolder_path, seg_filename)
-        print("\tSave polyp segmentation:   '%s'..." % seg_file_path)
-        np.save(seg_file_path, box.boxed_segmentation)
+        seg_path = "pat" + str(patient) + "_pol" + str(polyp) + "_seg" + str(segmentation) + "_seg.npy"
+        seg_path = os.path.join(output_dir, seg_path)
+        print("\tSave polyp segmentation:   '%s'..." % seg_path)
+        np.save(seg_path, box.boxed_segmentation)

@@ -35,17 +35,6 @@ def load_ct(filename, hu_range):
 
 def load_segmentation(filename):
     segmentation = np.load(filename)
-    if dataset=='nodules':
-        # Find segmentation label
-        pos       = filename.find('_finding_')
-        seg_label = filename[pos+len('_finding_')]
-        seg_label = np.uint8(seg_label)
-        
-        # Remove other segmentations
-        segmentation[segmentation!=seg_label] = 0
-        
-        # Set segmentation label to 1
-        segmentation[segmentation==seg_label] = 1
     return segmentation
 
 
@@ -72,14 +61,14 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
                  data,
                  batch_size,
                  patch_size,
-                 n_channel=2,
+                 n_channels=2,
                  hu_range=[-400,400],
                  num_threads=1,
                  shuffle=True):
         self.data        = data
         self.batch_size  = batch_size
         self.patch_size  = patch_size
-        self.n_channel   = n_channel
+        self.n_channels  = n_channels
         self.hu_range    = hu_range
         self.num_threads = num_threads
         self.shuffle     = shuffle
@@ -89,7 +78,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         self._lock = threading.Lock()
         
         # Initialize empty arrays/lists for batch data
-        self.data_batch        = np.zeros((self.batch_size, self.n_channel, *self.patch_size), dtype=np.float32)
+        self.data_batch        = np.zeros((self.batch_size, self.n_channels, *self.patch_size), dtype=np.float32)
         self.labels_batch      = np.empty(self.batch_size, dtype=np.int32)
         self.patient_ids_batch = []
         
@@ -106,14 +95,11 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         # Get filenames
         patient_files = [str(x.absolute()) for x in Path(j).iterdir() if x.is_file()]
         patient_files.sort()
-        print('patient_files', patient_files)
         
         # Load data
         patient_data_ct  = None
         patient_data_seg = None
         patient_data_ct  = load_ct(patient_files[0], hu_range=self.hu_range)
-
-        print('patient_data_ct', patient_data_ct.shape)
         
         # Crop image around the center to patch size
         patient_data_ct = crop_image(patient_data_ct, self.patch_size)
@@ -122,7 +108,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         patient_data_ct = np.expand_dims(patient_data_ct, -1)
 
         # Prepare second channel
-        if self.n_channel == 2:
+        if self.n_channels == 2:
             # Load segmentation
             patient_data_seg  = load_segmentation(patient_files[1])
 
@@ -133,7 +119,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
             patient_data_seg = np.expand_dims(patient_data_seg, -1)
 
         patient_data = patient_data_ct
-        if self.n_channel == 2:
+        if self.n_channels == 2:
             patient_data = np.concatenate((patient_data_ct, patient_data_seg), axis=-1)
 
         # Get label
@@ -151,7 +137,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         patients_for_batch = [self.data[patient] for patient in self.select_patients(index)]
         
         # Initialize empty array for data
-        self.data_batch        = np.zeros((self.batch_size, *self.patch_size, self.n_channel), dtype=np.float32)
+        self.data_batch        = np.zeros((self.batch_size, *self.patch_size, self.n_channels), dtype=np.float32)
         self.labels_batch      = np.empty(self.batch_size, dtype=np.int32)
         self.patient_ids_batch = []
         
