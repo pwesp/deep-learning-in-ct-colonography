@@ -22,11 +22,20 @@ def get_preprocessed_polyp_segmentation_mask_info(data_dir):
     polyps        = [x.split('pol')[1].split('_')[0] for x in files]
     segmentations = [x.split('seg')[1].split('_')[0] for x in files]
     image_type    = [x.split('_')[-1].split('.npy')[0] for x in files]
+    data    = np.array([patients, polyps, segmentations, files]).swapaxes(0,1)
     
-    columns = ['patient', 'polyp', 'segmentation', 'type', 'file']
-    data    = np.array([patients, polyps, segmentations, image_type, files]).swapaxes(0,1)
+    # Dataframe for CTs
+    inds_ct    = np.where(np.asarray(image_type)=='ct')
+    columns_ct = ['patient', 'polyp', 'segmentation', 'preprocessed_ct_file']
+    df_cts     = pd.DataFrame(data=data[inds_ct], columns=columns_ct)
     
-    df_polyp_seg_masks = pd.DataFrame(data=data, columns=columns)
+    # Dataframe for segmentations
+    inds_seg    = np.where(np.asarray(image_type)=='seg')
+    columns_seg = ['patient', 'polyp', 'segmentation', 'preprocessed_segmentation_file']
+    df_segs     = pd.DataFrame(data=data[inds_seg], columns=columns_seg)
+    
+    df_polyp_seg_masks = df_cts.merge(df_segs, how='inner', on=['patient', 'polyp', 'segmentation'])
+    df_polyp_seg_masks = df_polyp_seg_masks.astype({'patient': np.int64, 'polyp': np.int64, 'segmentation': np.int64})
     
     return df_polyp_seg_masks
 

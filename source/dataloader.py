@@ -11,9 +11,9 @@ import threading
 ################################################
 
 def digitize_label(label_string):
-    if label_string=='benign' or label_string=='001':
+    if label_string=='benign':
         return 0
-    elif label_string=='precancerous' or label_string=='1':
+    elif label_string=='premalignant':
         return 1
     else:
         print('WARNING: Unknown label {:s}'.format(label_string))
@@ -72,7 +72,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         self.hu_range    = hu_range
         self.num_threads = num_threads
         self.shuffle     = shuffle
-        self.indices     = list(range(len(data)))
+        self.indices     = list(range(self.data.shape[0]))
 
         # Multithreading
         self._lock = threading.Lock()
@@ -88,18 +88,18 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
     def __getitem__(self, index):
         return self.generate_train_batch(index)
     
-    def select_patients(self, index):
+    def select_polyp_segs(self, index):
         return self.indices[index*self.batch_size:(index+1)*self.batch_size]
 
-    def fill_batch(self, i, j):
+    def fill_batch(self, i, row):
         # Get filenames
-        patient_files = [str(x.absolute()) for x in Path(j).iterdir() if x.is_file()]
-        patient_files.sort()
+        ct_file  = row['preprocessed_ct_file']
+        seg_file = row['preprocessed_segmentation_file']
         
         # Load data
         patient_data_ct  = None
         patient_data_seg = None
-        patient_data_ct  = load_ct(patient_files[0], hu_range=self.hu_range)
+        patient_data_ct  = load_ct(ct_file, hu_range=self.hu_range)
         
         # Crop image around the center to patch size
         patient_data_ct = crop_image(patient_data_ct, self.patch_size)
@@ -110,7 +110,7 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         # Prepare second channel
         if self.n_channels == 2:
             # Load segmentation
-            patient_data_seg  = load_segmentation(patient_files[1])
+            patient_data_seg  = load_segmentation(seg_file)
 
             # Crop image around the center to patch size
             patient_data_seg  = crop_image(patient_data_seg, self.patch_size)
@@ -121,20 +121,20 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         patient_data = patient_data_ct
         if self.n_channels == 2:
             patient_data = np.concatenate((patient_data_ct, patient_data_seg), axis=-1)
-
+            
         # Get label
-        label = digitize_label(j.split('/')[-1])
+        label = digitize_label(row['class_label'])
         
         # Fill data array
         with self._lock:
             # Locked update
             self.data_batch[i]         = patient_data
             self.labels_batch[i]       = (label)
-            self.patient_ids_batch.append(j.split('/')[-2])
+            self.patient_ids_batch.append(row['patient'])
     
     def generate_train_batch(self, index):
         # Select patietents for batch
-        patients_for_batch = [self.data[patient] for patient in self.select_patients(index)]
+        df_polyp_segs_batch = self.data.iloc[self.select_polyp_segs(index)]
         
         # Initialize empty array for data
         self.data_batch        = np.zeros((self.batch_size, *self.patch_size, self.n_channels), dtype=np.float32)
@@ -143,8 +143,8 @@ class ValidationDataGenerator(tensorflow.keras.utils.Sequence):
         
         # Iterate over patients_for_batch and include them in the batch
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-            for i, j in enumerate(patients_for_batch):
-                executor.submit(self.fill_batch, i, j)
+            for i, row in enumerate(df_polyp_segs_batch.iterrows()):
+                executor.submit(self.fill_batch, i, row[1]) # row = tuple, row[1] = DataFrame
         
         return self.data_batch, self.labels_batch
 
