@@ -1,8 +1,9 @@
-from   source.boxed_ct_scan import Boxed_CT_Scan
 import numpy as np
 import os
 import pandas as pd
 from   pathlib import Path
+from   sklearn.model_selection import train_test_split
+from   source.boxed_ct_scan import Boxed_CT_Scan
 
 
 
@@ -85,3 +86,25 @@ def preprocess_data(ct_info_file, output_dir, box_size=100, resample=False):
         seg_path = os.path.join(output_dir, seg_path)
         print("\tSave polyp segmentation:   '%s'..." % seg_path)
         np.save(seg_path, box.boxed_segmentation)
+        
+
+    
+def train_validation_split(df_data, train_size=0.5, stratify=False, random_state=None):
+    
+    class_label = df_data['class_label'].to_list()
+    
+    # Perform a (stratified) train/validation split
+    if stratify:
+        print("Stratified train/validation split...")
+        X_train, X_valid, y_train, y_valid = train_test_split(df_data, class_label, train_size=train_size, stratify=class_label, random_state=random_state)
+    else:
+        print("Train/validation split...")
+        X_train, X_valid, y_train, y_valid = train_test_split(df_data, class_label, train_size=train_size, random_state=random_state)
+
+    # Confirm stratification
+    labels_train = X_train['class_label'].to_list()
+    labels_valid = X_valid['class_label'].to_list()
+    print("\t- Train set:      [class, n] =", [[x,labels_train.count(x)] for x in set(labels_train)])
+    print("\t- Validation set: [class, n] =", [[x,labels_valid.count(x)] for x in set(labels_valid)])
+    
+    return X_train, X_valid

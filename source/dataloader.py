@@ -1,7 +1,11 @@
+from   batchgenerators.dataloading import MultiThreadedAugmenter
+from   batchgenerators.dataloading.data_loader import DataLoader
 import concurrent.futures
+from   source.data_augmentation import get_train_transforms
 import numpy as np
 from   pathlib import Path
 import tensorflow.keras
+from   tensorflow.keras.utils import to_categorical
 import threading
 
 
@@ -49,6 +53,131 @@ def crop_image(image, crop_size):
     # Crop image
     image = image[lb[0]:ub[0],lb[1]:ub[1],lb[2]:ub[2]]
     return image
+
+
+
+########################################
+######### Training Dataloader ##########
+########################################
+
+class TrainingDataGenerator(DataLoader):
+    """
+    Dataloading class.
+    Inspired by https://github.com/MIC-DKFZ/batchgenerators/blob/master/batchgenerators/examples/brats2017/brats2017_dataloader_3D.py
+    """
+    def __init__(self,
+                 data, 
+                 batch_size,
+                 raw_image_size,
+                 n_channels=2,
+                 hu_range=[-400,400],
+                 num_threads_in_multithreaded=1,
+                 seed_for_shuffle=1234,
+                 return_incomplete=False, 
+                 shuffle=True, 
+                 infinite=True):
+        super().__init__([row[1] for row in data.iterrows()], # DataLoader expects a list for the first argument 'data'
+                         batch_size, 
+                         num_threads_in_multithreaded,
+                         seed_for_shuffle, 
+                         return_incomplete, 
+                         shuffle,
+                         infinite)
+        self.raw_image_size = raw_image_size
+        self.n_channels     = n_channels
+        self.hu_range       = hu_range
+        self.indices        = list(range(len(self._data)))
+
+    def generate_train_batch(self):
+        # DataLoader has its own methods for selecting what patients to use next, see its Documentation
+        idx                = self.get_indices()
+        patients_for_batch = [self._data[i] for i in idx]
+        
+        # Initialize empty array for data
+        data        = np.zeros((self.batch_size, self.n_channels, *self.raw_image_size), dtype=np.float32)
+        labels      = np.empty(self.batch_size, dtype=np.int32)
+        patient_ids = []
+        
+        # Iterate over patients_for_batch and include them in the batch
+        for i, row in enumerate(patients_for_batch):
+            
+            # Get filenames
+            ct_file  = row['preprocessed_ct_file']
+            seg_file = row['preprocessed_segmentation_file']
+            
+            # Load data
+            patient_data_ct   = np.zeros(shape=self.raw_image_size, dtype=np.float32)
+            patient_data_seg  = np.zeros(shape=self.raw_image_size, dtype=np.float32)
+            patient_data_ct   = load_ct(ct_file, hu_range=self.hu_range)
+            
+            # Add channel axis to combine CT image and segmentation
+            patient_data_ct  = np.expand_dims(patient_data_ct, 0)
+            
+            # Prepare second channel
+            if self.n_channels == 2:
+   
+                # Load segmentation
+                patient_data_seg  = load_segmentation(seg_file, dataset=self.dataset)
+                    
+                # Add channel axis
+                patient_data_seg = np.expand_dims(patient_data_seg, 0)
+            
+            patient_data = patient_data_ct
+            if self.n_channels == 2:
+                patient_data = np.concatenate((patient_data_ct, patient_data_blob))
+
+            # Get label
+            label = digitize_label(row['class_label'])
+            
+            # Fill data array
+            data[i]   = patient_data
+            labels[i] = (label)
+            patient_ids.append(row['patient'])
+        return {'data':data, 'label':labels, 'ids':patient_ids}
+    
+
+
+class BatchgenWrapper(tensorflow.keras.utils.Sequence):
+    """
+    Wrapper to make MIC-DKFZ batchgenerator work for Keras model.train() function.
+    """
+    def __init__(self,
+                 data, 
+                 batch_size,
+                 raw_image_size,
+                 patch_size,
+                 n_channels=1,
+                 non_linear=True,
+                 one_hot=False,
+                 num_processes=1,
+                 num_cached_per_queue=1,
+                 seeds=None,
+                 pin_memory=False):
+        self.dataloader    = TrainingDataGenerator(data=data,
+                                                   batch_size=batch_size,
+                                                   raw_image_size=raw_image_size,
+                                                   n_channels=n_channels)
+        self.transforms    = get_train_transforms(patch_size, non_linear=non_linear)
+        self.datagenerator = MultiThreadedAugmenter(data_loader=self.dataloader,
+                                                    transform=self.transforms,
+                                                    num_processes=num_processes,
+                                                    num_cached_per_queue=num_cached_per_queue,
+                                                    seeds=seeds,
+                                                    pin_memory=pin_memory)
+        self.one_hot       = one_hot
+
+    def __len__(self):
+        return int(np.floor(len(self.dataloader._data) / self.dataloader.batch_size))
+    
+    def __getitem__(self, index):
+        batch = next(self.datagenerator)
+        # Input
+        data  = batch['data']
+        data  = np.moveaxis(data, 1, -1) # PyTorch format to Keras format
+        label = batch['label']
+        if self.one_hot:
+            label = to_categorical(label)
+        return data, label
 
 
 
